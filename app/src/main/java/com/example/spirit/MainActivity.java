@@ -159,7 +159,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 // and then we can return your byte array.
                 try {
                     String result = new String(byteBuffer.toByteArray(), "utf-8");
-                    alert("haohaoahfofj");
+                    alert(byteBuffer.size()+"");
                     alert(result);
                 } catch (UnsupportedEncodingException e) {
                     e.printStackTrace();
