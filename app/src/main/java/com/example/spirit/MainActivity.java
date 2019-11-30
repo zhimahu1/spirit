@@ -18,9 +18,6 @@ import android.widget.Toast;
 //import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 //import org.apache.poi.xwpf.usermodel.XWPFDocument;
 
-import com.example.spirit.R;
-
-import org.apache.poi.sl.draw.geom.Context;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 
@@ -30,9 +27,10 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener, TextToSpeech.OnInitListener {
     public static final int OPEN_FILE = 100;
@@ -62,6 +60,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private int intervalValue;
     /*重复次数*/
     private int frequencyValue;
+
+    private static ReentrantLock lock = new ReentrantLock();
+    private static Condition condition = lock.newCondition();
+
+    private MyThread myThread = new MyThread(false);
     /*选中的uri*/
     private Uri uri;
     private static String[] mimeTypes = {"application/msword",
@@ -79,12 +82,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         choosePath = findViewById(R.id.choose_path);
         openFile = findViewById(R.id.open_file);
         startSpeech = findViewById(R.id.btn_start_speech);
-        reStartSpeech = findViewById(R.id.btn_restart_speech);
+        reStartSpeech = findViewById(R.id.btn_stop_speech);
         suspendSpeech = findViewById(R.id.btn_suspend_speech);
-        Integer interval = Integer.valueOf(((EditText) findViewById(R.id.intreval_value)).getText().toString());
-        intervalValue = interval == null ? 2 : interval.intValue();
-        Integer frequence = Integer.valueOf(((EditText) findViewById(R.id.frequency_value)).getText().toString());
-        frequencyValue = frequence == null ? 2 : frequence.intValue();
         //注册监听器
         choosePath.setOnClickListener(this);
         openFile.setOnClickListener(this);
@@ -92,6 +91,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         reStartSpeech.setOnClickListener(this);
         suspendSpeech.setOnClickListener(this);
         textToSpeech = new TextToSpeech(this, this); // 参数Context,TextToSpeech.OnInitListener
+
     }
 
 
@@ -130,19 +130,28 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 /*if (isValid(fileUrl, "请您先选择文件路径，单击上方“选择路径”按钮哦")) {
                     readWord(fileUrl);
                 }*/
-                InputStream inputStream = null;
                 try {
-                    inputStream = getContentResolver().openInputStream(uri);
-                    byte[] bytes = new byte[inputStream.available()];
-                    int read = inputStream.read(bytes);
-                    String result = new String(bytes);
-                    alert(""+bytes.length);
-                    alert(result);
-                } catch (IOException e) {
-                    alert(e.getMessage());
-                    e.printStackTrace();
-                }
+                 InputStream inputStream = getContentResolver().openInputStream(uri);
 
+                    // this dynamically extends to take the bytes you read
+                    ByteArrayOutputStream byteBuffer = new ByteArrayOutputStream();
+
+                    // this is storage overwritten on each iteration with bytes
+                    int bufferSize = 1024;
+                    byte[] buffer = new byte[bufferSize];
+
+                    // we need to know how may bytes were read to write them to the byteBuffer
+                    int len = 0;
+                    while ((len = inputStream.read(buffer)) != -1) {
+                        byteBuffer.write(buffer, 0, len);
+                        Log.i("welhzh_f", "" + len);
+                    }
+                    // and then we can return your byte array.
+                    alert(byteBuffer.toByteArray().toString());
+                    alert(byteBuffer.toString("GBK"));
+                }catch (Exception e){
+                    alert(e.getMessage());
+                }
                 //Log.d("zhsy","read=="+read+"byte="+"text=="+result);
 
                /* // and then we can return your byte array.
@@ -156,63 +165,51 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 }*/
                 break;
             case R.id.btn_start_speech://"开始"
-                if (isValid(speechList, "莫着急，请先导入词语哦，哈哈哈哈")) {
-                    alert(speechList.toString());
-                    if (textToSpeech != null && !textToSpeech.isSpeaking()) {
-                        // 设置音调，值越大声音越尖（女生），值越小则变成男声,1.0是常规
-                        textToSpeech.setPitch(0.5f);
-                        //设定语速 ，默认1.0正常语速
-                        textToSpeech.setSpeechRate(1.5f);
-                        for (int i = 0; i < speechList.length; i++) {
-                            speechNum = new AtomicInteger(i);//目前读取的位置
-                            for (int j = 0; j < frequencyValue; j++) {//每个词语读取次数
-                                //朗读，注意这里三个参数的added in API level 4   四个参数的added in API level 21
-                                textToSpeech.speak(speechList[i], TextToSpeech.QUEUE_FLUSH, null);
-                                //停顿intervalValue秒
-                                try {
-                                    Thread.sleep(intervalValue * 1000);
-                                } catch (InterruptedException e) {
-                                    e.printStackTrace();
-                                }
-                            }
-                            //todo 词语之间是否要停顿
-                        }
-                    }
-                }
+                myThread.start();
+                startSpeech.setEnabled(false);
                 break;
             case R.id.btn_suspend_speech://"暂停"
                 final String status = (String) v.getTag();
                 if ("1".equals(status)) {
-                    //todo 加暂停
+                    myThread.continu();
                     suspendSpeech.setText("暂停");
                     v.setTag("0"); //pause
                 } else {
-                    //todo 加继续
+                    myThread.pause();
                     suspendSpeech.setText("继续");
                     v.setTag("1");
                 }
                 break;
-            //暂停逻辑
-            case R.id.btn_restart_speech://"重新开始"
-                //重新开始逻辑
+            case R.id.btn_stop_speech://"停止"
+                myThread.stopMe();
                 break;
+            default:
+                throw new IllegalStateException("Unexpected value: " + v.getId());
         }
     }
 
     //读取word文件内容,返回数组，支持docx
     public void readWord(String file) {
         alert(file);
+
         //创建输入流用来<a title="读取doc文件" href="http://www.android-study.com/pingtaikaifa/38.html">读取doc文件</a>
         FileInputStream in = null;
         try {
-            File file1 = new File(file);
-            alert(file1.toString());
-            in = new FileInputStream(file1);
-            alert(in.toString());
+            File fs = new File(file);
+            alert(file);
+            if (!fs.exists()) {
+                try {
+                    fs.createNewFile();
+                } catch (IOException e) {
+                    alert("创建时，异常喽" + e.getMessage());
+                }
+            }
+            in = new FileInputStream(fs);
+            alert("" + 217);
             XWPFDocument xdoc = new XWPFDocument(in);
-            alert(xdoc.toString());
+            alert("" + 219);
             XWPFWordExtractor extractor = new XWPFWordExtractor(xdoc);
-            alert(extractor.toString());
+            alert("" + 221);
             String doc1 = extractor.getText();
             alert(doc1);
             speechList = doc1.split("，");
@@ -222,7 +219,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             alert(e.getMessage());
             e.printStackTrace();
         } catch (Exception e) {
-            alert(e.getMessage());
+            alert("异常喽！" + e.getMessage());
             e.printStackTrace();
         } finally {
             //关闭输入流
@@ -239,15 +236,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     /*接收到刚才选择的文件路径*/
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
         if (resultCode == Activity.RESULT_OK && data != null) {
             if (requestCode == OPEN_FILE) {
                 uri = data.getData();
                 String path = PathUtils.getPath(this, uri);
                 filePath.setText(path);
-                fileUrl = path;
+                fileUrl = filePath.getText().toString();
             }
         }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     /*校验参数是否符合，符合返回true，不符合返回false*/
@@ -261,7 +258,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                         @Override
                         public void onClick(DialogInterface dialogInterface, int i) {
                             System.out.println("点了确定");
-                            ;
                         }
                     }).create();
             alertDialog.show();
@@ -280,7 +276,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     @Override
                     public void onClick(DialogInterface dialogInterface, int i) {
                         System.out.println("点了确定");
-                        ;
                     }
                 }).create();
         alertDialog.show();
@@ -294,4 +289,77 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             textToSpeech.shutdown();
         }
     }
+
+    class MyThread extends Thread {
+        private boolean pauseFlag;
+
+        public MyThread(boolean flag) {
+            this.pauseFlag = flag;
+        }
+
+        public void run() {
+            synchronized (myThread) {
+                try {
+                    Integer interval = Integer.valueOf(((EditText) findViewById(R.id.intreval_value)).getText().toString());
+                    intervalValue = interval == null ? 2 : interval.intValue();
+                    Integer frequence = Integer.valueOf(((EditText) findViewById(R.id.frequency_value)).getText().toString());
+                    frequencyValue = frequence == null ? 2 : frequence.intValue();
+                    speechList = new String[]{"你好", "寂寞", "同情", "北京"};
+                    if (isValid(speechList, "莫着急，请先导入词语哦，哈哈哈哈")) {
+                        if (textToSpeech != null && !textToSpeech.isSpeaking()) {
+                            // 设置音调，值越大声音越尖（女生），值越小则变成男声,1.0是常规
+                            textToSpeech.setPitch(1.0f);
+                            //设定语速 ，默认1.0正常语速
+                            textToSpeech.setSpeechRate(1.0f);
+                            for (int i = 0; i < speechList.length; i++) {
+                                speechNum = new AtomicInteger(i);//目前读取的位置
+                                for (int j = 0; j < frequencyValue; j++) {//每个词语读取次数
+                                    while (pauseFlag) {
+                                        myThread.wait();
+                                    }
+                                    //朗读，注意这里三个参数的added in API level 4   四个参数的added in API level 21
+                                    textToSpeech.speak(speechList[i], TextToSpeech.QUEUE_FLUSH, null);
+                                    //停顿intervalValue秒
+                                    try {
+                                        Thread.sleep(intervalValue * 1000);
+                                    } catch (InterruptedException e) {
+                                        e.printStackTrace();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    if (e instanceof InterruptedException) {
+                        alert("已经停止");
+                    }
+                }
+            }
+        }
+
+        public void pause() {
+            pauseFlag = true;
+        }
+
+        public void continu() {
+            if (getState() == State.WAITING) {
+                myThread.notify();
+            }
+            pauseFlag = false;
+        }
+
+        /**
+         * 停止线程运行。
+         */
+        public void stopMe() {
+            if (myThread != null) {
+                myThread.interrupt();
+            }
+        }
+    }
+
+    ;
+
+
 }
+
