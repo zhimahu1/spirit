@@ -20,6 +20,7 @@ import android.widget.Toast;
 
 import com.example.spirit.R;
 
+import org.apache.poi.sl.draw.geom.Context;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 
@@ -132,41 +133,31 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 InputStream inputStream = null;
                 try {
                     inputStream = getContentResolver().openInputStream(uri);
-                } catch (FileNotFoundException e) {
+                    byte[] bytes = new byte[inputStream.available()];
+                    int read = inputStream.read(bytes);
+                    String result = new String(bytes);
+                    alert(""+bytes.length);
+                    alert(result);
+                } catch (IOException e) {
                     alert(e.getMessage());
                     e.printStackTrace();
                 }
 
-                // this dynamically extends to take the bytes you read
-                ByteArrayOutputStream byteBuffer = new ByteArrayOutputStream();
+                //Log.d("zhsy","read=="+read+"byte="+"text=="+result);
 
-                // this is storage overwritten on each iteration with bytes
-                int bufferSize = 1024;
-                byte[] buffer = new byte[bufferSize];
-
-                // we need to know how may bytes were read to write them to the byteBuffer
-                int len = 0;
-                while (true) {
-                    try {
-                        if (!((len = inputStream.read(buffer)) != -1)) break;
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    byteBuffer.write(buffer, 0, len);
-                    Log.i("welhzh_f", "" + len);
-                }
-
-                // and then we can return your byte array.
+               /* // and then we can return your byte array.
                 try {
-                    String result = new String(byteBuffer.toByteArray(), "utf-8");
+                    String result = new String(byteBuffer.toByteArray(), "GB2312");
                     alert(byteBuffer.size()+"");
                     alert(result);
                 } catch (UnsupportedEncodingException e) {
+                    alert(e.getMessage());
                     e.printStackTrace();
-                }
+                }*/
                 break;
             case R.id.btn_start_speech://"开始"
                 if (isValid(speechList, "莫着急，请先导入词语哦，哈哈哈哈")) {
+                    alert(speechList.toString());
                     if (textToSpeech != null && !textToSpeech.isSpeaking()) {
                         // 设置音调，值越大声音越尖（女生），值越小则变成男声,1.0是常规
                         textToSpeech.setPitch(0.5f);
@@ -228,10 +219,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             alert(speechList.toString());
             System.out.println(doc1);
         } catch (FileNotFoundException e) {
-            alert(e.getStackTrace().toString());
+            alert(e.getMessage());
             e.printStackTrace();
         } catch (Exception e) {
-            alert(e.getStackTrace().toString());
+            alert(e.getMessage());
             e.printStackTrace();
         } finally {
             //关闭输入流
@@ -252,8 +243,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         if (resultCode == Activity.RESULT_OK && data != null) {
             if (requestCode == OPEN_FILE) {
                 uri = data.getData();
-                filePath.setText(uri.getPath().toString());
-                fileUrl = filePath.getText().toString();
+                String path = PathUtils.getPath(this, uri);
+                filePath.setText(path);
+                fileUrl = path;
             }
         }
     }
